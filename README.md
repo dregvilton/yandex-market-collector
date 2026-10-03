@@ -1,55 +1,55 @@
 # yandex-market-collector
 
-An unofficial, browser based Yandex Market data collector. It runs **N Firefox Nightly processes × M tabs**, schedules arbitrary YAML targets, stores source observations in PostgreSQL, and streams CSV or JSONL exports. It does not judge listings or send price alerts.
+Неофициальный сборщик данных Яндекс Маркета через браузер. Он запускает **N процессов Firefox Nightly × M вкладок**, собирает данные по произвольным целям из YAML, сохраняет наблюдения в PostgreSQL и выгружает их в CSV или JSONL. Сборщик не оценивает товары и не отправляет уведомления о ценах.
 
-The project is not affiliated with Yandex. It does not bypass CAPTCHA. You are responsible for following the site's rules; use moderate request rates and stop when the source presents a challenge.
+Проект не связан с Яндексом и не обходит CAPTCHA. Пользователь сам отвечает за соблюдение правил сайта. Рекомендуется задавать умеренную частоту запросов и прекращать сбор при появлении проверки.
 
-## How it works
+## Как это работает
 
 ```mermaid
 flowchart LR
-  Y[YAML targets] --> S[Scheduler]
-  S --> B[N Firefox Nightly processes]
-  B --> T[M tabs per process]
-  T --> P[Response parser]
-  P --> D[(PostgreSQL observations)]
-  D --> E[CSV / JSONL export]
-  D --> H[Status and SQL views]
+  Y[Цели сбора в YAML] --> S[Планировщик]
+  S --> B[N процессов Firefox Nightly]
+  B --> T[M вкладок на процесс]
+  T --> P[Разбор ответов]
+  P --> D[(Наблюдения в PostgreSQL)]
+  D --> E[Экспорт CSV / JSONL]
+  D --> H[Статус и SQL-представления]
 ```
 
-Each enabled target has a query or a direct `https://market.yandex.ru` URL, an interval, and optional page/result limits. Workers claim due targets in PostgreSQL. A real Firefox tab navigates, scrolls, and observes Yandex responses. The parser keeps source metadata as JSONB and extracts identity, title, price, reference price, seller, availability, URL, image, and rank when present. `reference_price_minor` is a source claim, not an objective discount. Money uses integer minor units.
+Для каждой включённой цели задаётся поисковый запрос или прямая ссылка на `https://market.yandex.ru`, интервал сбора и, при необходимости, ограничения на число страниц или результатов. Рабочие процессы получают из PostgreSQL цели, для которых наступило время сбора. Вкладка Firefox открывает страницу, прокручивает её и перехватывает ответы Маркета. Парсер сохраняет исходные данные в JSONB и, когда поля доступны, извлекает идентификаторы, название, цену, справочную цену, продавца, наличие, ссылку, изображение и позицию. Поле `reference_price_minor` отражает данные источника, а не объективную скидку. Денежные суммы хранятся целым числом в минимальных единицах валюты.
 
-A changed significant field is saved immediately. Identical observations are saved at most once per 24 hours for the same target/product/offer. The raw JSON for every saved observation remains available. A challenge or 403/429 stops the run and opens a shared cooldown circuit.
+При изменении значимого поля наблюдение записывается сразу. Полностью одинаковые наблюдения для одной цели, товара и предложения сохраняются не чаще раза в 24 часа. Исходный JSON каждого сохранённого наблюдения остаётся доступен. При проверке со стороны сайта или ответе 403/429 текущий запуск прекращается, а общий механизм охлаждения приостанавливает новые запросы.
 
-## Requirements
+## Требования
 
-- Go 1.25 or newer (tested with Go 1.26.4)
-- PostgreSQL 14 or newer
-- Firefox Nightly and the Playwright driver/browser dependencies required by `playwright-go`
+- Go 1.25 или новее (проверено с Go 1.26.4)
+- PostgreSQL 14 или новее
+- Firefox Nightly и драйвер Playwright с зависимостями браузера, необходимыми для `playwright-go`
 
-The browser runs on the host; Compose runs only PostgreSQL. On macOS, a standard Firefox Nightly installation in `/Applications/Firefox Nightly.app` is detected. On other systems set `browser.executable` or `YANDEX_FIREFOX_EXECUTABLE`. Set `browser.profile_dir` only if you want persistent profiles; the collector creates a separate `process-N` directory for each browser process. Never share one profile between processes.
+Браузер работает на основной машине; Docker Compose запускает только PostgreSQL. На macOS автоматически определяется стандартная установка Firefox Nightly в `/Applications/Firefox Nightly.app`. На других системах укажите `browser.executable` или `YANDEX_FIREFOX_EXECUTABLE`. Поле `browser.profile_dir` нужно только для постоянных профилей: сборщик создаёт отдельный каталог `process-N` для каждого процесса браузера. Не используйте один профиль одновременно в нескольких процессах.
 
-## Quick start
+## Быстрый запуск
 
-Install the matching Playwright driver and its Firefox Nightly build when they are not already present:
+Если драйвер Playwright и соответствующая сборка Firefox Nightly ещё не установлены, установите их:
 
 ```bash
 go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6201.1 install firefox
 ```
 
-Copy the configuration and set your own targets and Firefox Nightly executable. An official Nightly in `/Applications/Firefox Nightly.app` is detected automatically on macOS. For the Playwright build, locate `Nightly.app/Contents/MacOS/firefox` in the Playwright browser cache and set `browser.executable` to its full path. `browser.driver_dir` selects a non-default driver directory. Use `headless: false` to watch browser activity.
+Скопируйте конфигурацию, задайте свои цели сбора и путь к Firefox Nightly. На macOS официальная установка в `/Applications/Firefox Nightly.app` определяется автоматически. Если используете браузер из Playwright, найдите `Nightly.app/Contents/MacOS/firefox` в его кеше и укажите полный путь в `browser.executable`. Поле `browser.driver_dir` задаёт нестандартный каталог драйвера. Чтобы видеть работу браузера, установите `headless: false`.
 
 ```bash
 cp config.example.yaml config.yaml
-# Edit config.yaml, then:
+# Отредактируйте config.yaml, затем:
 docker compose up -d postgres
 go build -o yandex-market-collector ./cmd/collector
 ./yandex-market-collector run --config config.yaml
 ```
 
-For a server without Docker, point `database.url` at an existing PostgreSQL database.
+Если Docker не используется, укажите в `database.url` адрес существующей базы PostgreSQL.
 
-Example target configuration:
+Пример настройки целей:
 
 ```yaml
 browser:
@@ -68,9 +68,9 @@ targets:
     max_results: 200
 ```
 
-`YANDEX_BROWSER_PROCESSES` and `YANDEX_TABS_PER_BROWSER` override the topology. `DATABASE_URL`, `YANDEX_FIREFOX_EXECUTABLE`, and `YANDEX_FIREFOX_PROFILE_DIR` also override YAML. Config parsing validates target keys, duration values, and direct URL hosts.
+Переменные `YANDEX_BROWSER_PROCESSES` и `YANDEX_TABS_PER_BROWSER` переопределяют число процессов и вкладок. `DATABASE_URL`, `YANDEX_FIREFOX_EXECUTABLE` и `YANDEX_FIREFOX_PROFILE_DIR` также имеют приоритет над YAML. При загрузке конфигурации проверяются ключи целей, интервалы и домен прямых ссылок.
 
-## CLI
+## Команды CLI
 
 ```bash
 ./yandex-market-collector migrate --config config.yaml
@@ -81,9 +81,9 @@ targets:
 ./yandex-market-collector export --config config.yaml --format jsonl --until 2026-10-03T00:00:00Z --output observations.jsonl
 ```
 
-`--since` and `--until` accept Go durations relative to now or RFC3339 timestamps. An end time is exclusive. Omit `--output` to write to stdout. Files are created with mode 0600 and existing files are not overwritten. Export reads rows incrementally; memory use does not scale with the full table.
+Параметры `--since` и `--until` принимают интервал в формате Go относительно текущего момента или дату и время RFC3339. Верхняя граница периода не включается в результат. Без `--output` данные выводятся в stdout. Файлы создаются с правами 0600; существующий файл не перезаписывается. Экспорт читает строки последовательно и не загружает всю таблицу в память.
 
-A helper script manages a background process:
+Для фоновой работы есть вспомогательный скрипт:
 
 ```bash
 ./scripts/collector start
@@ -93,9 +93,9 @@ A helper script manages a background process:
 ./scripts/collector stop
 ```
 
-The helper rotates operational logs at 10 MiB and keeps two backups. `status` reports process heartbeat, topology, workers, queue, recent runs, source challenges, HTTP 403/429, circuit state, database health, and observations per minute. An empty result set is a successful collection, not an error.
+Скрипт ротирует журналы при достижении 10 МиБ и сохраняет две предыдущие копии. Команда `status` показывает активность процесса, число браузеров и вкладок, состояние рабочих процессов и очереди, последние запуски, проверки со стороны сайта, ответы 403/429, состояние механизма охлаждения, доступность базы и число наблюдений в минуту. Пустой результат сбора не считается ошибкой.
 
-## SQL analysis
+## Анализ данных через SQL
 
 ```sql
 SELECT * FROM latest_observations LIMIT 20;
@@ -105,10 +105,10 @@ SELECT * FROM target_daily_stats ORDER BY day DESC;
 SELECT * FROM collection_run_stats;
 ```
 
-See [data model](docs/DATA_MODEL.md), [analytics](docs/ANALYTICS.md), and [architecture](docs/ARCHITECTURE.md).
+Подробнее: [модель данных](docs/DATA_MODEL.md), [аналитика](docs/ANALYTICS.md) и [архитектура](docs/ARCHITECTURE.md).
 
-## Limits
+## Ограничения
 
-Source response shapes may change. Not every visible card is guaranteed to appear in captured JSON, and field extraction is intentionally tolerant. Firefox Nightly compatibility depends on the installed Playwright version. Browser challenges stop collection; there is no CAPTCHA solving. Large databases need normal PostgreSQL operations such as backups and retention planning. The collector does not implement authentication, a web UI, or distributed browser orchestration.
+Формат ответов источника может меняться. Не каждая видимая карточка обязательно попадает в перехваченный JSON; парсер допускает отсутствие отдельных полей. Совместимость Firefox Nightly зависит от установленной версии Playwright. При проверке со стороны сайта сбор прекращается; решения CAPTCHA нет. Для большой базы потребуются обычные меры сопровождения PostgreSQL, в том числе резервное копирование и политика хранения данных. В проекте нет аутентификации, веб-интерфейса и распределённого управления браузерами.
 
-Licensed under MIT.
+Лицензия — MIT.
