@@ -56,13 +56,30 @@ func (r *Runner) Run(ctx context.Context) error {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
-			defer alive.Add(-1)
+			active := true
 			defer func() {
-				if v := recover(); v != nil {
-					r.Log.Error("worker panic", "worker", w, "panic", v)
+				if active {
+					alive.Add(-1)
 				}
 			}()
-			r.worker(ctx, w)
+			for ctx.Err() == nil {
+				panicValue := func() (recovered any) {
+					defer func() { recovered = recover() }()
+					r.worker(ctx, w)
+					return nil
+				}()
+				if panicValue == nil {
+					return
+				}
+				alive.Add(-1)
+				active = false
+				r.Log.Error("worker panic", "worker", w, "panic", panicValue)
+				if !sleep(ctx, r.Config.Collector.RetryCooldown.Duration) {
+					return
+				}
+				alive.Add(1)
+				active = true
+			}
 		}(w)
 	}
 	ticker := time.NewTicker(10 * time.Second)

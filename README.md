@@ -31,14 +31,23 @@ The browser runs on the host; Compose runs only PostgreSQL. On macOS, a standard
 
 ## Quick start
 
+Install the matching Playwright driver and its Firefox Nightly build when they are not already present:
+
+```bash
+go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6201.1 install firefox
+```
+
+Copy the configuration and set your own targets and Firefox Nightly executable. An official Nightly in `/Applications/Firefox Nightly.app` is detected automatically on macOS. For the Playwright build, locate `Nightly.app/Contents/MacOS/firefox` in the Playwright browser cache and set `browser.executable` to its full path. `browser.driver_dir` selects a non-default driver directory. Use `headless: false` to watch browser activity.
+
 ```bash
 cp config.example.yaml config.yaml
+# Edit config.yaml, then:
 docker compose up -d postgres
 go build -o yandex-market-collector ./cmd/collector
 ./yandex-market-collector run --config config.yaml
 ```
 
-Edit `config.yaml` to set the Firefox Nightly executable and your own targets. Use `headless: false` to watch browser activity. If the Playwright driver is absent, install its dependencies according to the upstream `playwright-go` instructions; `browser.driver_dir` selects a local driver directory. For a server without Docker, point `database.url` at an existing PostgreSQL database.
+For a server without Docker, point `database.url` at an existing PostgreSQL database.
 
 Example target configuration:
 
@@ -84,7 +93,7 @@ A helper script manages a background process:
 ./scripts/collector stop
 ```
 
-`status` reports process heartbeat, topology, workers, queue, recent runs, source challenges, HTTP 403/429, circuit state, database health, and observations per minute. An empty result set is a successful collection, not an error.
+The helper rotates operational logs at 10 MiB and keeps two backups. `status` reports process heartbeat, topology, workers, queue, recent runs, source challenges, HTTP 403/429, circuit state, database health, and observations per minute. An empty result set is a successful collection, not an error.
 
 ## SQL analysis
 

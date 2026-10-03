@@ -7,7 +7,7 @@ case "${1:-}" in
  start)
   if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then echo "already running"; exit 0; fi
   go build -o .runtime/yandex-market-collector ./cmd/collector
-  nohup .runtime/yandex-market-collector run --config "${COLLECTOR_CONFIG:-config.yaml}" >>.runtime/collector.log 2>&1 &
+  COLLECTOR_LOG_FILE=.runtime/collector.log nohup .runtime/yandex-market-collector run --config "${COLLECTOR_CONFIG:-config.yaml}" >.runtime/collector-startup.log 2>&1 &
   echo $! > "$pidfile"
   echo "started pid $(cat "$pidfile")"
   ;;
@@ -20,6 +20,6 @@ case "${1:-}" in
   ;;
  restart) "$0" stop; "$0" start ;;
  status) if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then echo "running pid $(cat "$pidfile")"; else echo "not running"; fi; go run ./cmd/collector status --config "${COLLECTOR_CONFIG:-config.yaml}" ;;
- logs) tail -n 100 -f .runtime/collector.log ;;
+ logs) tail -n 100 -f .runtime/collector.log .runtime/collector-startup.log ;;
  *) echo "usage: scripts/collector {start|stop|restart|status|logs}"; exit 2 ;;
 esac

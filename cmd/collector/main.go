@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,6 +18,7 @@ import (
 	"github.com/dregvilton/yandex-market-collector/internal/config"
 	"github.com/dregvilton/yandex-market-collector/internal/export"
 	"github.com/dregvilton/yandex-market-collector/internal/health"
+	"github.com/dregvilton/yandex-market-collector/internal/logging"
 	"github.com/dregvilton/yandex-market-collector/internal/storage"
 )
 
@@ -69,7 +71,16 @@ func run(args []string) error {
 		defer pool.Close()
 		runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
-		r := collector.Runner{Store: s, Browser: pool, Config: c, Log: slog.New(slog.NewJSONHandler(os.Stderr, nil))}
+		var output io.Writer = os.Stderr
+		if path := os.Getenv("COLLECTOR_LOG_FILE"); path != "" {
+			file, err := logging.Open(path, 10<<20)
+			if err != nil {
+				return fmt.Errorf("open log: %w", err)
+			}
+			defer file.Close()
+			output = file
+		}
+		r := collector.Runner{Store: s, Browser: pool, Config: c, Log: slog.New(slog.NewJSONHandler(output, nil))}
 		return r.Run(runCtx)
 	case "status":
 		st, e := health.Read(ctx, s)

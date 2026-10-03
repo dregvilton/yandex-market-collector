@@ -37,12 +37,14 @@ type Failure struct {
 func (f *Failure) Error() string { return fmt.Sprintf("browser %s (HTTP %d)", f.Kind, f.Status) }
 
 type event struct {
-	products  []Product
-	page      PageInfo
-	raw       int
-	status    int
-	challenge bool
-	err       error
+	products            []Product
+	page                PageInfo
+	raw                 int
+	status              int
+	challenge           bool
+	backgroundChallenge bool
+	backgroundStatus    bool
+	err                 error
 }
 type tab struct {
 	page       playwright.Page
@@ -246,17 +248,23 @@ func install(t *tab) {
 			return
 		}
 		acquisition := len(parsed.Products) > 0 || parsed.RawRows > 0 || acquisitionEndpoint(resp.URL())
-		if challenge && (typ == "document" || acquisition) {
-			t.publish(gen, event{status: status, challenge: true})
+		if challenge {
+			if typ == "document" || acquisition {
+				t.publish(gen, event{status: status, challenge: true})
+			} else {
+				t.publish(gen, event{status: status, backgroundChallenge: true})
+			}
 			return
 		}
-		if (status == 403 || status == 429) && (typ == "document" || acquisition) {
-			t.publish(gen, event{status: status})
+		if status == 403 || status == 429 {
+			if typ == "document" || acquisition {
+				t.publish(gen, event{status: status})
+			} else {
+				t.publish(gen, event{status: status, backgroundStatus: true})
+			}
 			return
 		}
-		if len(parsed.Products) > 0 || parsed.RawRows > 0 {
-			t.publish(gen, event{products: parsed.Products, page: parsed.Page, raw: parsed.RawRows, status: status})
-		}
+		t.publish(gen, event{products: parsed.Products, page: parsed.Page, raw: parsed.RawRows, status: status})
 	})
 }
 func (t *tab) begin() {
@@ -325,11 +333,27 @@ func (p *Pool) Collect(ctx context.Context, worker int, target Target, emit func
 	for {
 		select {
 		case <-qctx.Done():
+			if t.overflow.Load() {
+				return stats, errors.New("browser event queue overflow")
+			}
 			if ctx.Err() != nil {
 				return stats, ctx.Err()
 			}
 			return stats, nil
 		case ev := <-t.events:
+			stats.Requests++
+			if ev.backgroundChallenge {
+				stats.Challenges++
+				continue
+			}
+			if ev.backgroundStatus {
+				if ev.status == 403 {
+					stats.HTTP403++
+				} else if ev.status == 429 {
+					stats.HTTP429++
+				}
+				continue
+			}
 			if ev.err != nil {
 				return stats, ev.err
 			}
@@ -345,7 +369,6 @@ func (p *Pool) Collect(ctx context.Context, worker int, target Target, emit func
 				}
 				return stats, &Failure{Kind: "SOURCE_LIMIT", Status: ev.status}
 			}
-			stats.Requests++
 			stats.RawItems += ev.raw
 			stats.Pages = max(stats.Pages, ev.page.Page)
 			batch := make([]Product, 0, len(ev.products))
