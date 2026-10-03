@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+mkdir -p .runtime
+pidfile=.runtime/collector.pid
+case "${1:-}" in
+ start)
+  if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then echo "already running"; exit 0; fi
+  go build -o .runtime/yandex-market-collector ./cmd/collector
+  nohup .runtime/yandex-market-collector run --config "${COLLECTOR_CONFIG:-config.yaml}" >>.runtime/collector.log 2>&1 &
+  echo $! > "$pidfile"
+  echo "started pid $(cat "$pidfile")"
+  ;;
+ stop)
+  if [[ ! -f "$pidfile" ]]; then echo "not running"; exit 0; fi
+  pid=$(cat "$pidfile")
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 30); do if ! kill -0 "$pid" 2>/dev/null; then break; fi; sleep 1; done
+  rm -f "$pidfile"
+  ;;
+ restart) "$0" stop; "$0" start ;;
+ status) if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then echo "running pid $(cat "$pidfile")"; else echo "not running"; fi; go run ./cmd/collector status --config "${COLLECTOR_CONFIG:-config.yaml}" ;;
+ logs) tail -n 100 -f .runtime/collector.log ;;
+ *) echo "usage: scripts/collector {start|stop|restart|status|logs}"; exit 2 ;;
+esac

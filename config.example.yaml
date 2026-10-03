@@ -1,0 +1,29 @@
+database:
+  url: "postgres://collector:collector@localhost:5432/collector?sslmode=disable"
+browser:
+  processes: 4
+  tabs_per_process: 2
+  executable: "" # Set to Firefox Nightly executable; auto-detected on macOS when installed in Applications
+  profile_dir: "" # Optional base directory; each process gets its own profile
+  headless: false
+  scroll_interval: 5s
+  query_timeout: 2m
+collector:
+  poll_interval: 5s
+  challenge_cooldown: 30m
+  retry_cooldown: 2m
+targets:
+  - key: smartphones
+    enabled: true
+    query: "смартфон"
+    interval: 30m
+    max_pages: 5
+  - key: cpu-amd
+    enabled: true
+    query: "AMD Ryzen"
+    interval: 1h
+  - key: monitors
+    enabled: true
+    url: "https://market.yandex.ru/search?text=монитор"
+    interval: 1h
+    max_results: 200
